@@ -1,0 +1,188 @@
+# Run whenever a PR is generated or updated.
+
+
+name: Arduino-Pico CI
+
+on:
+  pull_request:
+
+
+jobs:
+
+# Me no spell so good
+  code-spell:
+    name: Check spelling
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - name: Run codespell
+      uses: codespell-project/actions-codespell@master
+      with:
+        skip: ./pico-extras,./ArduinoCore-API,./libraries/SdFat,./libraries/Adafruit_TinyUSB_Arduino,./libraries/LittleFS/lib,./tools/pyserial,./pico-sdk,./.github,./docs/i2s.rst,./cores/rp2040/api
+        ignore_words_list: ser,DOUT
+
+# Consistent style
+  astyle:
+    name: Style, Boards, Package
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: false
+    - name: Check package references
+      run: |
+        ./tests/ci/pkgrefs_test.sh
+    - name: Check boards.txt was not edited after makeboards.py
+      run: |
+        ./tools/makeboards.py > boards.txt
+        # If anything changed, GIT should return an error and fail the test
+        git diff --exit-code
+    - name: Run astyle on all code/examples
+      run: |
+        sudo apt update
+        sudo apt install astyle
+        ./tests/restyle.sh
+        # If anything changed, GIT should return an error and fail the test
+        git diff --exit-code
+    - name: Check Arduino API copy is clean
+      run: |
+        git submodule update --init ./ArduinoCore-API
+        diff -r ./cores/rp2040/api ./ArduinoCore-API/api
+
+# Build all examples on linux (core and Arduino IDE)
+  build-linux:
+    name: Build ${{ matrix.chunk }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        chunk: [0, 1, 2, 3]
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+    - name: Cache Linux toolchain
+      id: cache-linux
+      uses: actions/cache@v2
+      with:
+        path: ./tools/dist
+        key: ${{ runner.os }}-${{ hashFiles('package/package_pico_index.template.json', 'tests/common.sh') }}
+    - name: Build Sketches
+      env:
+        TRAVIS_BUILD_DIR: ${{ github.workspace }}
+        TRAVIS_TAG: ${{ github.ref }}
+        BUILD_PARITY: custom
+        mod: 4
+        rem: ${{ matrix.chunk }}
+      run: |
+        cd pico-sdk
+        git submodule update --init
+        cd ../pico-extras
+        git submodule update --init
+        cd ..
+        bash ./tests/build.sh
+
+# Build TinyUSB examples, requires custom build command line
+  build-tinyusb:
+    name: Build TinyUSB Examples
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+    - name: Cache Linux toolchain
+      id: cache-linux
+      uses: actions/cache@v2
+      with:
+        path: ./tools/dist
+        key: ${{ runner.os }}-${{ hashFiles('package/package_pico_index.template.json', 'tests/common.sh') }}
+    - name: Build Sketches
+      env:
+        TRAVIS_BUILD_DIR: ${{ github.workspace }}
+        TRAVIS_TAG: ${{ github.ref }}
+        BUILD_PARITY: custom
+      run: |
+        cd pico-sdk
+        git submodule update --init
+        cd ../pico-extras
+        git submodule update --init
+        cd ..
+        bash ./tests/build-tinyusb.sh
+
+# Single build under Windows to ensure the Win toolchain is good.
+  build-windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+    - name: Cache Windows toolchain
+      id: cache-windows
+      uses: actions/cache@v2
+      with:
+        path: ./tools/dist
+        key: ${{ runner.os }}-${{ hashFiles('package/package_pico_index.template.json', 'tests/common.sh') }}
+    - name: Build Sketch
+      env:
+        TRAVIS_BUILD_DIR: ${{ github.workspace }}
+        TRAVIS_TAG: ${{ github.ref }}
+        WINDOWS: 1
+        BUILD_PARITY: custom
+        mod: 500
+        rem: 1
+      run: |
+        # Windows has python3 already installed, but it's called "python".
+        # Copy python.exe to the proper name so scripts "just work".
+        try { Get-Command python3 } catch { copy (get-command python).source (get-command python).source.Replace("python.exe", "python3.exe") }
+        cd pico-sdk
+        git submodule update --init
+        cd ../pico-extras
+        git submodule update --init
+        cd ..
+        bash ./tests/build.sh
+
+
+# Single build under macOS to ensure the Mac toolchain is good.
+  build-mac:
+    name: Mac
+    runs-on: macOS-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+    - name: Cache Mac toolchain
+      id: cache-mac
+      uses: actions/cache@v2
+      with:
+        path: ./tools/dist
+        key: ${{ runner.os }}-${{ hashFiles('package/package_pico_index.template.json', 'tests/common.sh') }}
+    - name: Build Sketch
+      env:
+        TRAVIS_BUILD_DIR: ${{ github.workspace }}
+        TRAVIS_TAG: ${{ github.ref }}
+        MACOSX: 1
+        BUILD_PARITY: custom
+        mod: 500
+        rem: 1
+      run: |
+        cd pico-sdk
+        git submodule update --init
+        cd ../pico-extras
+        git submodule update --init
+        cd ..
+        bash ./tests/build.sh
+

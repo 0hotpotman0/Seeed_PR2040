@@ -1,0 +1,2 @@
+BOOTSEL	KEYWORD1
+analogReadTemp	KEYWORD1
